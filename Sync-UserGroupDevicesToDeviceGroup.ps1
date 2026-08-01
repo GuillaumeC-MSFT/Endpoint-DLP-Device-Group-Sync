@@ -150,6 +150,7 @@ param(
     [switch]$SkipGraphConnect,
 
     [Parameter()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidDefaultValueSwitchParameter', '')]
     [switch]$InstallMissingModules = $true,
 
     [Parameter()]
@@ -659,7 +660,6 @@ function Install-RequiredGraphModule {
 
     # Retry once after removing any leftover partial copy that may prevent Save-Module from writing cleanly.
     $moduleDestinationPath = Join-Path -Path $DedicatedCachePath -ChildPath $ModuleName
-    $attemptedCleanRetry = $false
     $savedSuccessfully = $false
     $lastSaveModuleDetailText = $null
 
@@ -682,7 +682,6 @@ function Install-RequiredGraphModule {
             if ($saveAttempt -eq 1 -and (Test-Path -Path $moduleDestinationPath)) {
                 Write-Log -Message "Save-Module attempt $saveAttempt failed for '$ModuleName'. $detailText" -Level Warning
                 Write-Log -Message "A previous partial/incomplete copy exists at '$moduleDestinationPath'. Removing it and retrying once, in case that leftover state is the cause." -Level Info
-                $attemptedCleanRetry = $true
                 try {
                     Remove-Item -Path $moduleDestinationPath -Recurse -Force -ErrorAction Stop
                 }
