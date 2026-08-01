@@ -1,6 +1,7 @@
-# Endpoint DLP Device Group Sync
+# User-to-Device Group Sync for Microsoft Entra ID
 
-PowerShell utility that identifies Microsoft Entra registered devices associated with users in a source security group and synchronizes those devices into a destination security group.
+PowerShell utility that identifies Microsoft Entra registered devices associated with users in a source security group and synchronizes those devices into a destination device security group.
+
 
 The script supports interactive and automated execution scenarios, multiple authentication methods, validation checks, reporting, logging, and retry handling for Microsoft Graph operations.
 
@@ -16,6 +17,16 @@ The script supports interactive and automated execution scenarios, multiple auth
 - CSV reporting and detailed logging
 - Identification of users with no associated devices
 - Accessible console messaging
+
+ ## Use Cases
+
+- Building device security groups from user security groups
+- Validating user-to-device relationships in Microsoft Entra ID
+- Identifying users without registered devices
+- Maintaining device group memberships
+- Device deployment readiness reviews
+- Endpoint DLP deployment planning and validation
+- Device-scoped Conditional Access planning
 
 This script:
 
@@ -39,25 +50,39 @@ Required permissions:
 - GroupMember.Read.All
 - GroupMember.ReadWrite.All
 
+## Source Group Validation
+
+The script requires the source user group to exist and contain at least one user.
+
+If the group is missing or empty, the script will:
+
+- Pause execution
+- Display guidance to the operator
+- Allow the group to be created or populated
+- Re-prompt for the group name
+- Resume validation without restarting the script
+
 ## Authentication Methods
+
+### Device Code Authentication
 
 ### Device Code Authentication
 
 Useful when interactive browser authentication is unavailable or not preferred.
 
 Examples:
-- Remote PowerShell sessions
-- Environments where browser prompts are hidden
+- Remote or restricted PowerShell environments
 - Troubleshooting authentication issues
 - Testing alternate authentication methods
+- Situations where browser-based sign-in is not practical
 
 ### Interactive Browser Authentication
 
 Recommended for normal administrative use.
 
 Examples:
+- Day-to-day Microsoft Entra administration
 - Interactive desktop sessions
-- Standard Microsoft Entra administration workflows
 - Environments where browser-based authentication is permitted
 
 ### Certificate Authentication
@@ -86,7 +111,7 @@ Contains:
 
 Highlights users that do not have an associated registered device.
 
-This is particularly important for Endpoint DLP deployments because those users may not be represented in device-scoped policies.
+This is particularly useful when planning Endpoint DLP or other device-scoped solutions because users without associated devices may not be represented in device-targeted policies.
 
 ## Disclaimer
 
