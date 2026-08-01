@@ -1,32 +1,21 @@
 # Endpoint DLP Device Group Sync
 
-PowerShell utility designed to help Endpoint DLP deployments by automatically identifying devices associated with users in a Microsoft Entra security group and synchronizing those devices into a device security group.
+PowerShell utility that identifies Microsoft Entra registered devices associated with users in a source security group and synchronizes those devices into a destination security group.
+
+The script supports interactive and automated execution scenarios, multiple authentication methods, validation checks, reporting, logging, and retry handling for Microsoft Graph operations.
 
 ## Features
 
-- Interactive menu
-- Device Code Authentication
-- Interactive Browser Authentication
-- App-only Certificate Authentication
+- Interactive menu-driven experience
+- Device Code, Interactive Browser, and Certificate-based authentication options
 - Microsoft Graph module validation
-- Automatic Microsoft Graph installation guidance
-- Source group validation
-- Pause/Resume workflow when source group is missing
-- Re-prompt source group name after retry
-- Destination device group creation
-- Entra ID replication wait logic
-- Membership retry logic
-- Report Only mode
-- Apply mode
-- UsersWithoutDevices exception reporting
-- Endpoint DLP coverage validation
-- CSV reporting
-- Detailed logging
-- Accessibility-friendly console output
-
-## Use Case
-
-A common Endpoint DLP deployment challenge is ensuring that device-scoped policies have the correct device memberships.
+- Source user group validation with pause-and-resume workflow
+- Destination group validation and optional creation
+- Retry logic for Microsoft Graph operations
+- User-to-device relationship discovery
+- CSV reporting and detailed logging
+- Identification of users with no associated devices
+- Accessible console messaging
 
 This script:
 
@@ -35,10 +24,11 @@ This script:
 3. Adds the devices into a destination device security group.
 4. Produces reports highlighting users without associated devices.
 
-## Prerequisites
+## Requirements
 
-- PowerShell 5.1 or PowerShell 7+
+- Windows PowerShell 5.1 or PowerShell 7+
 - Microsoft Graph PowerShell SDK
+- Microsoft Entra ID permissions required by the script
 
 Required permissions:
 
@@ -49,34 +39,36 @@ Required permissions:
 - GroupMember.Read.All
 - GroupMember.ReadWrite.All
 
-## Authentication Options
+## Authentication Methods
 
 ### Device Code Authentication
 
-Recommended for:
+Useful when interactive browser authentication is unavailable or not preferred.
 
-- Windows Terminal
-- VS Code
+Examples:
 - Remote PowerShell sessions
-- Environments where browser prompts may be hidden
+- Environments where browser prompts are hidden
+- Troubleshooting authentication issues
+- Testing alternate authentication methods
 
 ### Interactive Browser Authentication
 
-Recommended when Device Code Authentication is not permitted.
+Recommended for normal administrative use.
 
-### App-Only Authentication
+Examples:
+- Interactive desktop sessions
+- Standard Microsoft Entra administration workflows
+- Environments where browser-based authentication is permitted
 
-Recommended for:
+### Certificate Authentication
 
-- Automation
-- Scheduled execution
+Intended for unattended or automated execution scenarios.
+
+Examples:
+- Scheduled tasks
 - Service accounts
-
-Requires:
-
-- App Registration
-- Certificate
-- Appropriate Microsoft Graph Application Permissions
+- Automation platforms
+- Operational runbooks
 
 ## Reports Generated
 
