@@ -20,6 +20,8 @@ Key behaviors:
 - Uses registered devices by default, with options for owned devices or both.
 - Adds missing desired devices to the target device group.
 - Removes stale devices by default when they are no longer associated with source users.
+- Writes a timestamped CSV report to the current working directory by default. Use -ReportPath to specify
+    a different file path.
 - Supports -WhatIf and -Confirm through PowerShell ShouldProcess.
 - Includes authentication choices for device code, interactive browser, and app-only certificate authentication.
   Note: interactive browser sign-in depends on the Windows WAM broker (mandatory since Microsoft.Graph
@@ -69,7 +71,7 @@ Key behaviors:
     -InstallMissingModules:$false
 
 .NOTES
-Script version: 3.16.1
+Script version: 3.16.2
 
 Required Microsoft Graph delegated permissions:
 - Group.Read.All
@@ -94,8 +96,6 @@ Required Microsoft Graph PowerShell modules:
 - Microsoft.Graph.Identity.DirectoryManagement
 #>
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidDefaultValueSwitchParameter', 'InstallMissingModules',
-    Justification = 'Intentional opt-out design: defaults to enabled; use -InstallMissingModules:$false to disable.')]
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium', DefaultParameterSetName = 'ByDisplayName')]
 param(
     [Parameter(Mandatory = $true, ParameterSetName = 'ByDisplayName')]
@@ -152,7 +152,7 @@ param(
     [switch]$SkipGraphConnect,
 
     [Parameter()]
-    [switch]$InstallMissingModules = $true,
+    [switch]$InstallMissingModules,
 
     [Parameter()]
     [ValidateRange(1, 10)]
@@ -163,16 +163,23 @@ param(
     [int]$RetryDelaySeconds = 3,
 
     [Parameter()]
-    [string]$ReportPath,
+    [string]$ReportPath = (Join-Path -Path (Get-Location).Path -ChildPath ("UserGroupDeviceSync-{0}.csv" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))),
 
     [Parameter()]
     [switch]$NoInteractiveRetry
 )
 
+$installMissingModulesEnabled = if ($PSBoundParameters.ContainsKey('InstallMissingModules')) {
+    [bool]$InstallMissingModules
+}
+else {
+    $true
+}
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:ScriptVersion = '3.16.1'
+$script:ScriptVersion = '3.16.2'
 $script:ScriptName = 'Sync-UserGroupDevicesToDeviceGroup.ps1'
 
 function Write-Log {
@@ -1944,7 +1951,7 @@ if ($null -ne $ExcludeDeviceId -and $ExcludeDeviceId.Count -gt 0) {
 try {
     Write-Log -Message "$script:ScriptName version $script:ScriptVersion starting. PowerShell version $($PSVersionTable.PSVersion)." -Level Info
 
-    Import-RequiredGraphModules -InstallIfMissing:$InstallMissingModules
+    Import-RequiredGraphModules -InstallIfMissing:$installMissingModulesEnabled
 
     # Log loaded module versions to aid troubleshooting of Graph SDK-specific behavior differences.
     foreach ($moduleName in @('Microsoft.Graph.Authentication', 'Microsoft.Graph.Users', 'Microsoft.Graph.Groups', 'Microsoft.Graph.Identity.DirectoryManagement')) {

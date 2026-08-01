@@ -2,6 +2,12 @@
 
 All notable changes to this script are documented here.
 
+## 3.16.2
+
+- Added automatic timestamped CSV reports in the current working directory, with `-ReportPath` available to override the destination.
+- Removed the default initializer from the `-InstallMissingModules` switch while preserving its default-enabled behavior and `-InstallMissingModules:$false` opt-out, resolving the PowerShell analyzer diagnostic without changing the public interface.
+- Corrected the MIT license heading for Markdown lint compatibility.
+
 ## 3.16.1
 
 - Trimmed or removed verbose developer-investigation comments throughout the script to improve readability for external sharing. No functional changes.

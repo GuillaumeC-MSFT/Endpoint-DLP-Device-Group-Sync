@@ -20,7 +20,7 @@ This PowerShell script reads the user members of a source Microsoft Entra ID sec
 - **Self-healing module corruption detection** - automatically detects and repairs a module that Windows Defender Controlled Folder Access silently corrupted mid-install.
 - **Retry logic with backoff** for transient/throttled Microsoft Graph errors.
 - **-WhatIf / -Confirm support** via PowerShell ShouldProcess.
-- **CSV reporting**, including a separate report of users with no matching devices.
+- **Automatic CSV reporting** to a timestamped file in the current working directory, including a separate report of users with no matching devices. Use `-ReportPath` to choose another path.
 - **Accessibility-friendly console output** - explicit text labels (`[SUCCESS]`, `[WARNING]`, `[ERROR]`, `[ACTION REQUIRED]`) rather than relying on color alone.
 - **Clean Microsoft Graph disconnect** on exit, whether the run succeeded or failed.
 
@@ -116,7 +116,7 @@ This PowerShell script reads the user members of a source Microsoft Entra ID sec
 | `-InstallMissingModules` | switch | **on by default** | Automatically install any missing required module. Use `-InstallMissingModules:$false` to disable and fail fast instead. |
 | `-RetryCount` | int (1-10) | `3` | Max retry attempts for retryable Graph errors. |
 | `-RetryDelaySeconds` | int (1-60) | `3` | Base delay between retries (multiplied by attempt number). |
-| `-ReportPath` | string | none | CSV output path. A second `-UsersWithoutDevices` CSV is written alongside it if applicable. |
+| `-ReportPath` | string | `UserGroupDeviceSync-yyyyMMdd-HHmmss.csv` in the current working directory | Override the CSV output path. A second `-UsersWithoutDevices` CSV is written alongside it if applicable. |
 | `-NoInteractiveRetry` | switch | off | Disable interactive pause/retry prompts; fail immediately instead (useful for unattended/scheduled runs). |
 
 `-WhatIf` and `-Confirm` are also supported (via `SupportsShouldProcess`).
