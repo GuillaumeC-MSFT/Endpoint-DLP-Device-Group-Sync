@@ -66,8 +66,6 @@ If the group is missing or empty, the script will:
 
 ### Device Code Authentication
 
-### Device Code Authentication
-
 Useful when interactive browser authentication is unavailable or not preferred.
 
 Examples:
