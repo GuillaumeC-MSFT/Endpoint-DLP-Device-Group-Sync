@@ -36,6 +36,7 @@ This PowerShell script reads the user members of a source Microsoft Entra ID sec
 ### Required Microsoft Graph permissions
 
 **Delegated** (interactive sign-in):
+
 - `Group.Read.All`
 - `GroupMember.ReadWrite.All`
 - `Group.ReadWrite.All` (only needed if the script creates the target device group)
@@ -96,7 +97,7 @@ This PowerShell script reads the user members of a source Microsoft Entra ID sec
 ## Parameters
 
 | Parameter | Type | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `-SourceUserGroup` | string | (required, `ByDisplayName` set) | Source user group display name. Aliases: `-SourceGroup`, `-SourceGroupName`. |
 | `-TargetDeviceGroup` | string | none | Target device group display name. Optional - if omitted or not found, the script offers to create it. Aliases: `-TargetGroup`, `-TargetGroupName`, `-DestinationDeviceGroup`. |
 | `-SourceUserGroupId` | string (GUID) | (required, `ById` set) | Source user group object ID. |

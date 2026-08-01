@@ -94,6 +94,8 @@ Required Microsoft Graph PowerShell modules:
 - Microsoft.Graph.Identity.DirectoryManagement
 #>
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidDefaultValueSwitchParameter', 'InstallMissingModules',
+    Justification = 'Intentional opt-out design: defaults to enabled; use -InstallMissingModules:$false to disable.')]
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium', DefaultParameterSetName = 'ByDisplayName')]
 param(
     [Parameter(Mandatory = $true, ParameterSetName = 'ByDisplayName')]
@@ -150,7 +152,6 @@ param(
     [switch]$SkipGraphConnect,
 
     [Parameter()]
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidDefaultValueSwitchParameter', '')]
     [switch]$InstallMissingModules = $true,
 
     [Parameter()]
