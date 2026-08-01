@@ -2,6 +2,9 @@
 
 All notable changes to this script are documented here.
 
+## 3.16.1
+- Trimmed or removed verbose developer-investigation comments throughout the script to improve readability for external sharing. No functional changes.
+
 ## 3.16.0
 - Fixed a self-healing corruption-detection routine that could throw a string-escaping syntax error before it ever ran.
 - Added detection for Windows Defender Controlled Folder Access (CFA) as a cause of silently corrupted module installs, independent of admin rights.

@@ -69,7 +69,7 @@ Key behaviors:
     -InstallMissingModules:$false
 
 .NOTES
-Script version: 3.16.0
+Script version: 3.16.1
 
 Required Microsoft Graph delegated permissions:
 - Group.Read.All
@@ -170,7 +170,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:ScriptVersion = '3.16.0'
+$script:ScriptVersion = '3.16.1'
 $script:ScriptName = 'Sync-UserGroupDevicesToDeviceGroup.ps1'
 
 function Write-Log {
@@ -338,14 +338,9 @@ function Get-FreshlyInstalledModuleInfo {
         [string]$ModuleName
     )
 
-    # WHY THIS EXISTS: immediately after Install-Module completes, a plain "Get-Module -ListAvailable" in
-    # the SAME PowerShell session can still fail to see the module that was just written to disk. This is a
-    # long-standing Windows PowerShell 5.1 behavior: module autodiscovery relies on an internal path/manifest
-    # cache that is only guaranteed to be rebuilt on next session start, which is exactly why a restart has
-    # historically been "required" after installing a missing module. Get-InstalledModule (from PowerShellGet,
-    # which tracks its own independent inventory of what it has installed rather than relying on that cache)
-    # reliably reflects installations from moments ago in the same session, including the exact on-disk
-    # location. Importing directly from that location's manifest bypasses the stale-cache problem entirely.
+    # Get-InstalledModule maintains its own install inventory independently of PowerShell's module-discovery
+    # cache, so it reliably reflects installations from the current session. Importing directly from its
+    # reported manifest path bypasses the stale-cache issue that historically required a session restart.
     $installedModuleInfo = $null
     try {
         $installedModuleInfo = Get-InstalledModule -Name $ModuleName -ErrorAction Stop | Sort-Object Version -Descending | Select-Object -First 1
@@ -361,9 +356,8 @@ function Get-FreshlyInstalledModuleInfo {
         }
     }
 
-    # Fallback if PowerShellGet/Get-InstalledModule is unavailable for some reason: re-scan the normal way.
-    # This may still hit the stale-cache issue described above in rare environments, but it is a reasonable
-    # last resort rather than failing outright.
+    # Fallback if Get-InstalledModule is unavailable: re-scan normally. May still face the stale-cache
+    # issue in rare environments, but is a reasonable last resort.
     $availableModule = Get-Module -ListAvailable -Name $ModuleName | Sort-Object Version -Descending | Select-Object -First 1
     if ($null -ne $availableModule) {
         return [pscustomobject]@{ Version = $availableModule.Version; ManifestPath = $availableModule.Path }
@@ -376,14 +370,9 @@ function Initialize-NuGetProviderForCurrentUser {
     [CmdletBinding()]
     param()
 
-    # WHY THIS EXISTS: Install-Module correctly honors -Scope CurrentUser for the module itself, but if the
-    # underlying NuGet package provider has never been registered on this machine, Install-Module first has
-    # to silently bootstrap it - and that bootstrap step has a long-standing PackageManagement bug where it
-    # can attempt an all-users install regardless of the scope requested for the module, surfacing as
-    # "Administrator rights are required to install or update" even when -Scope CurrentUser was specified
-    # (confirmed in PowerShell/PowerShell GitHub issue #12777, reproduced even by users who genuinely are
-    # administrators). Explicitly installing the NuGet provider for CurrentUser scope first means
-    # Install-Module never needs to trigger that bootstrap path at all.
+    # Ensures the NuGet package provider is registered before Install-Module runs. If Install-Module has to
+    # bootstrap it internally, a known PackageManagement bug can demand administrator rights even with
+    # -Scope CurrentUser. Installing it explicitly for CurrentUser scope avoids that path entirely.
     $nugetProvider = Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
     if ($null -ne $nugetProvider) {
         return
@@ -409,14 +398,9 @@ function Get-DedicatedModuleCachePath {
     [CmdletBinding()]
     param()
 
-    # A location deliberately NOT under Documents. Install-Module's default CurrentUser destination lives
-    # under the Documents special folder, which is exactly the location most commonly affected by OneDrive
-    # Known Folder redirection and by Windows Defender Controlled Folder Access - both of which are
-    # documented, real-world causes of Install-Module failing with a misleading "Administrator rights are
-    # required" message even when -Scope CurrentUser is specified and the account genuinely is an admin
-    # (see PowerShellGetv2 GitHub issue #586, and multiple independently reported cases with this exact
-    # error text). LOCALAPPDATA is not subject to either of those by default, so using it as a fallback
-    # install destination sidesteps this entire failure class rather than guessing at the specific cause.
+    # Uses LOCALAPPDATA rather than the Documents folder to avoid failures caused by OneDrive Known Folder
+    # redirection and Windows Defender Controlled Folder Access, both of which can cause Install-Module to
+    # fail with a misleading "Administrator rights are required" error even with -Scope CurrentUser.
     if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
         return Join-Path -Path $env:LOCALAPPDATA -ChildPath 'Sync-UserGroupDevicesToDeviceGroup\Modules'
     }
@@ -450,9 +434,7 @@ function Write-ModuleInstallDiagnostics {
     [CmdletBinding()]
     param()
 
-    # Hard, verifiable facts about this environment, logged once up front - not a theory, just the actual
-    # state of the machine, so that if automatic installation still fails after the fallbacks below, there
-    # is real evidence to work from instead of another guess.
+    # Log environment details upfront to aid troubleshooting if all installation attempts fail.
     Write-Log -Message "PSModulePath: $env:PSModulePath" -Level Info
 
     try {
@@ -479,13 +461,10 @@ function Write-ModuleInstallDiagnostics {
     $cfaStatus = Test-ControlledFolderAccessStatus
     switch ($cfaStatus) {
         1 {
-            # CONFIRMED, NOT A THEORY: Controlled Folder Access blocks writes from processes that are not
-            # explicitly allow-listed, independently of whether that process is running elevated/as
-            # Administrator. This is precisely why running as admin does not help - CFA is a separate
-            # control from UAC/admin rights entirely. It commonly manifests as a module folder that gets
-            # partially written (for example, the .psd1 manifest succeeds but a .format.ps1xml or .dll file
-            # inside the same folder is silently blocked), which then looks "installed" to Get-Module
-            # -ListAvailable while actually being corrupted and incomplete.
+            # Windows Defender Controlled Folder Access blocks writes from processes not on its allowlist,
+            # independently of whether the process is running elevated. It can partially write a module
+            # folder (the .psd1 succeeds, but other files are silently blocked), making the module appear
+            # installed while it is actually incomplete.
             Write-Log -Message 'Windows Defender Controlled Folder Access is ENABLED on this machine. If module installation fails or a module fails to load with a "Could not find file" error pointing at a file inside an existing module version folder, this is almost certainly the cause - CFA can silently block individual file writes during installation regardless of admin rights.' -Level Warning
             $currentHostExecutableName = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh.exe' } else { 'powershell.exe' }
             $currentHostExecutablePath = Join-Path -Path $PSHOME -ChildPath $currentHostExecutableName
@@ -511,12 +490,8 @@ function Get-FullErrorDetailText {
         [System.Management.Automation.ErrorRecord]$ErrorRecord
     )
 
-    # PowerShellGet/PackageManagement cmdlets (Install-Module, Save-Module, Find-Module) are known to throw
-    # generic top-level wrapper messages such as "Unable to save the module 'X'." or "Unable to resolve
-    # package source" while the actual, specific, actionable cause lives in .ErrorDetails.Message or several
-    # layers deep in .InnerException. Logging only $_.Exception.Message (as an earlier version of this
-    # script did) silently discards that detail. This collects everything available on the ErrorRecord so
-    # the real cause is visible, whatever it turns out to be, instead of guessing at it.
+    # PowerShellGet cmdlets often wrap the real error in .ErrorDetails or nested InnerExceptions.
+    # This collects all available detail from the ErrorRecord so the actionable cause is visible.
     $lines = New-Object System.Collections.Generic.List[string]
 
     $lines.Add("Exception type: $($ErrorRecord.Exception.GetType().FullName)")
@@ -553,10 +528,8 @@ function Test-PSGalleryReachableAndTrusted {
     [CmdletBinding()]
     param()
 
-    # Separates "we cannot reach or use PSGallery at all" (a repository/network/trust problem, same for
-    # every module) from "we reached PSGallery fine but this specific save/install step failed" (a
-    # destination/dependency/file problem, specific to one module or one folder). Surfacing this distinction
-    # up front means the eventual error message points at the right category of thing to fix.
+    # Distinguishes repository-level failures (network, trust, registration) from module- or
+    # destination-specific failures, so error messages point at the right category of issue.
     try {
         $repository = Get-PSRepository -Name PSGallery -ErrorAction Stop
         Write-Log -Message "PSGallery repository registered. InstallationPolicy: $($repository.InstallationPolicy)" -Level Info
@@ -606,18 +579,9 @@ function Remove-ExistingModuleCacheEntry {
         [string]$Reason = 'starting a clean installation attempt'
     )
 
-    # EVIDENCE THIS EXISTS TO ADDRESS: a confirmed real failure showed Install-PSResource/Save-PSResource
-    # (ATTEMPT 3) throwing System.Management.Automation.CommandNotFoundException /
-    # Microsoft.PowerShell.Commands.ImportModuleCommand, reporting "Could not find file
-    # '...\<ModuleName>\<Version>\<ModuleName>.format.ps1xml'" - i.e. a partially extracted, corrupted
-    # module folder already sitting in the dedicated cache, missing one of its required files. The most
-    # likely origin is Save-Module (ATTEMPT 2) partially writing files before failing with
-    # ProviderFailToDownloadFile and this script previously breaking out of that attempt without cleaning up
-    # what it had already written. Rather than trying to precisely diagnose which specific file ends up
-    # missing or exactly which prior attempt left it behind, this removes the module's own folder (across
-    # all versions) from the dedicated cache before each fresh install attempt, so every attempt always
-    # starts from a genuinely clean slate. This is scoped strictly to "<DedicatedCachePath>\<ModuleName>",
-    # never touching anything outside this script's own private cache folder.
+    # Removes any partial or corrupted content from a prior failed attempt before starting fresh.
+    # Scoped strictly to "<DedicatedCachePath>\<ModuleName>"; never touches anything outside this
+    # script's own dedicated cache folder.
     $moduleCachePath = Join-Path -Path $DedicatedCachePath -ChildPath $ModuleName
     if (Test-Path -Path $moduleCachePath) {
         Write-Log -Message "Removing existing cached copy of '$ModuleName' at '$moduleCachePath' before $Reason (this may be an incomplete/corrupted leftover from an earlier failed attempt)." -Level Info
@@ -677,13 +641,8 @@ function Install-RequiredGraphModule {
     # process. Save-Module only downloads and copies files; it does not go through Install-Module's
     # AllUsers/CurrentUser scope-resolution logic at all, so it sidesteps failures caused by that scope
     # resolution specifically (for example, the Documents/OneDrive path problem it was originally added
-    # for). NOTE: Save-Module and Install-Module both sit on top of the SAME underlying PackageManagement/
-    # NuGet-provider download engine, so they do NOT sidestep failures that originate in that shared engine
-    # itself, such as FullyQualifiedErrorId 'ProviderFailToDownloadFile' - that specific error is a
-    # documented flaw in the legacy download path (confirmed in PowerShellGetv2 GitHub issue #667 and
-    # PowerShellGallery issue #84: corrupted/interrupted package streams during download). Retrying that
-    # same broken download path again would not be expected to reliably help, so that specific error is
-    # detected below and routed directly to ATTEMPT 3 instead of being retried here.
+    # Save-Module sidesteps scope-resolution issues but uses the same PackageManagement download engine
+    # as Install-Module. ProviderFailToDownloadFile errors from that engine are routed to ATTEMPT 3.
     Write-Log -Message "Attempting fallback installation into dedicated folder: $DedicatedCachePath" -Level Info
 
     if (-not (Test-PathIsWritable -Path $DedicatedCachePath)) {
@@ -695,16 +654,10 @@ function Install-RequiredGraphModule {
     # destination folder for what might actually be a repository-level problem.
     $galleryOk = Test-PSGalleryReachableAndTrusted
 
-    # Always start ATTEMPT 2 from a clean slate: remove any existing (possibly incomplete/corrupted, from a
-    # previous failed run) copy of this module from the dedicated cache before the first Save-Module call,
-    # rather than only reacting to a failure after the fact.
+    # Start from a clean slate; remove any partial content from a previous failed run.
     $null = Remove-ExistingModuleCacheEntry -ModuleName $ModuleName -DedicatedCachePath $DedicatedCachePath -Reason 'the dedicated-folder Save-Module attempt'
 
-    # Self-healing retry for the single most common recoverable cause of a plain "Unable to save the
-    # module" (unrelated to ProviderFailToDownloadFile specifically): a left-over partial copy written
-    # DURING this same attempt's own failed run, which can make a fresh Save-Module refuse to overwrite
-    # cleanly even with -Force. This only ever removes this specific module's own subfolder, never anything
-    # else in the dedicated cache.
+    # Retry once after removing any leftover partial copy that may prevent Save-Module from writing cleanly.
     $moduleDestinationPath = Join-Path -Path $DedicatedCachePath -ChildPath $ModuleName
     $attemptedCleanRetry = $false
     $savedSuccessfully = $false
@@ -760,13 +713,8 @@ function Install-RequiredGraphModule {
         Write-Log -Message "Module '$ModuleName' was saved to '$DedicatedCachePath' but could not be located afterward, even after adding that folder to `$env:PSModulePath for this session. Trying the Install-PSResource fallback next." -Level Warning
     }
 
-    # ATTEMPT 3: Install-PSResource / Save-PSResource from the Microsoft.PowerShell.PSResourceGet module.
-    # This is the official, modern replacement for PowerShellGet v2 (built into PowerShell 7.4 and later by
-    # default, which includes the 7.6.3 this script is running under), and it uses its own independent
-    # download implementation rather than the legacy PackageManagement/NuGet-provider engine that both
-    # Install-Module and Save-Module above rely on. This means it is not affected by
-    # ProviderFailToDownloadFile at all, since that defect lives specifically in the legacy engine, not in
-    # the module content or the destination folder.
+    # ATTEMPT 3: Install-PSResource (Microsoft.PowerShell.PSResourceGet) - uses an independent download
+    # implementation and is not affected by the PackageManagement ProviderFailToDownloadFile defect.
     $psResourceGetModule = Get-Module -ListAvailable -Name Microsoft.PowerShell.PSResourceGet | Select-Object -First 1
     if ($null -eq $psResourceGetModule) {
         $repositoryGuidance = if (-not $galleryOk) {
@@ -780,13 +728,7 @@ function Install-RequiredGraphModule {
 
     Write-Log -Message "Attempting fallback installation via Install-PSResource (Microsoft.PowerShell.PSResourceGet), a different download implementation than the previous two attempts." -Level Info
 
-    # Confirmed real-world evidence: ATTEMPT 2 (Save-Module) can fail partway through with
-    # ProviderFailToDownloadFile after already writing SOME files for this module into the dedicated cache,
-    # and this script previously broke out of that attempt without cleaning those partial files up. That
-    # leftover, incomplete folder (observed missing its .format.ps1xml) then caused Install-PSResource /
-    # Save-PSResource below to fail with an unrelated-looking CommandNotFoundException from Import-Module
-    # trying to load that same broken folder. Cleaning up before this attempt starts removes that specific,
-    # now-confirmed failure path entirely, rather than leaving it to reappear on some future run.
+    # Remove any partial content from a prior attempt before starting ATTEMPT 3.
     $null = Remove-ExistingModuleCacheEntry -ModuleName $ModuleName -DedicatedCachePath $DedicatedCachePath -Reason 'the Install-PSResource/Save-PSResource attempt'
 
     for ($psResourceAttempt = 1; $psResourceAttempt -le 2; $psResourceAttempt++) {
@@ -839,11 +781,7 @@ function Test-ControlledFolderAccessStatus {
     [CmdletBinding()]
     param()
 
-    # Get-MpPreference is a read-only query against Windows Defender and does not require elevation.
-    # Confirmed real-world cause for this environment: Controlled Folder Access blocks writes from
-    # non-allow-listed processes (like powershell.exe/pwsh.exe running a module-installation script)
-    # regardless of whether that process is running elevated/as Administrator - CFA operates independently
-    # of UAC/admin rights entirely, which is exactly why "running as admin" did not help here.
+    # Get-MpPreference is a read-only Defender query; it does not require elevation.
     try {
         $preference = Get-MpPreference -ErrorAction Stop
         $property = $preference.PSObject.Properties['EnableControlledFolderAccess']
@@ -867,9 +805,8 @@ function Get-ModuleVersionFolderPath {
         [string]$ManifestPath
     )
 
-    # A module manifest normally lives at <ModuleRoot>\<ModuleName>\<Version>\<ModuleName>.psd1, so two
-    # levels up from the manifest file is the version folder - the safe, correct unit to delete and
-    # reinstall when that specific version is found to be corrupted, without touching sibling versions.
+    # Returns the version folder (parent of the manifest); the correct unit to remove when a specific
+    # version is corrupted, without affecting other installed versions.
     try {
         return Split-Path -Path $ManifestPath -Parent
     }
@@ -889,11 +826,8 @@ function Test-PathIsUnderDedicatedCache {
         [string]$DedicatedCachePath
     )
 
-    # SAFETY GUARD: automatic deletion of a corrupted module folder must never be allowed to touch a
-    # system-wide or PowerShell-Gallery-managed module location (for example, Program Files, the system
-    # PowerShell module path, or another application's modules). This script only ever created and owns
-    # files under its own dedicated cache folder, so cleanup is strictly limited to paths physically inside
-    # that folder.
+    # Limits automatic cleanup to paths within this script's own dedicated cache; never touches system-wide
+    # or PowerShell Gallery-managed module locations.
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return $false
     }
@@ -934,11 +868,9 @@ function Import-RequiredGraphModules {
     $diagnosticsLogged = $false
 
     foreach ($moduleName in $requiredModules) {
-        # Allows exactly one self-heal cycle: if the first import attempt fails because this module's own
-        # on-disk files are corrupted/incomplete (the confirmed Controlled Folder Access signature - a
-        # module folder that Get-Module -ListAvailable finds via its .psd1, but where CFA silently blocked
-        # one or more of the other files inside that same folder during installation), the corrupted
-        # version folder is removed and a fresh install + import is attempted once more automatically.
+        # Allows one self-heal cycle: if import fails due to corrupted/incomplete on-disk files
+        # (a known Controlled Folder Access signature), the version folder is removed and a fresh
+        # install + import is attempted automatically.
         for ($healAttempt = 1; $healAttempt -le 2; $healAttempt++) {
             $alreadyImportedModule = Get-Module -Name $moduleName | Select-Object -First 1
             $moduleToImport = $null
@@ -947,9 +879,7 @@ function Import-RequiredGraphModules {
 
             if ($null -eq $availableModule) {
                 if (-not $InstallIfMissing) {
-                    # Only reachable if the caller explicitly opted out with -InstallMissingModules:$false;
-                    # module installation happens automatically by default so you never have to know in
-                    # advance whether a required module is already present.
+                    # -InstallMissingModules:$false was specified; the module must be installed manually.
                     throw "Required module '$moduleName' is not installed, and automatic installation was disabled with -InstallMissingModules:`$false. Install it manually with: Install-Module $moduleName -Scope CurrentUser"
                 }
 
@@ -992,12 +922,8 @@ function Import-RequiredGraphModules {
                 $canSelfHeal = $isMissingFileError -and (Test-PathIsUnderDedicatedCache -Path $corruptedVersionFolder -DedicatedCachePath $dedicatedCachePath) -and ($healAttempt -eq 1)
 
                 if ($canSelfHeal) {
-                    # This is the confirmed corruption signature: a module that Get-Module -ListAvailable
-                    # reports as present (its .psd1 manifest exists) but that fails to actually load because
-                    # one or more of its other files is missing on disk - exactly what happens when
-                    # Controlled Folder Access silently blocks a file write mid-installation. Safe to
-                    # auto-remove because Test-PathIsUnderDedicatedCache confirmed this folder belongs
-                    # exclusively to this script's own dedicated cache, never a system-wide module location.
+                    # Module manifest found but required files are missing (a known Controlled Folder Access
+                    # signature). Safe to auto-remove since the path is within this script's dedicated cache.
                     Write-Log -Message "Detected a corrupted/incomplete installation of '$moduleName' at '$corruptedVersionFolder' (a file inside this module's folder could not be found, even though the module itself was detected as present). This matches the signature of Windows Defender Controlled Folder Access silently blocking a file write during installation, independently of admin rights." -Level Warning
                     Write-Log -Message "Removing the corrupted folder and attempting a fresh install of '$moduleName' automatically." -Level Info
 
@@ -1022,14 +948,8 @@ function Import-RequiredGraphModules {
                     ' This looks like a corrupted/incomplete module installation, but it could not be safely auto-repaired (either a second occurrence, or the affected folder is outside this script''s own dedicated cache). Manually delete the affected module folder shown above and re-run this script.'
                 }
                 else {
-                    # GENUINE REMAINING LIMITATION: if a conflicting version of this module's underlying
-                    # .NET assemblies was already loaded into this process by an earlier command in this
-                    # same session (or by a PowerShell profile script) before this script ran, the CLR
-                    # cannot swap out an already-loaded assembly for a different version without starting a
-                    # new process. This applies to both Windows PowerShell 5.1 and PowerShell 7+ (Core).
-                    # This is the one scenario that can still legitimately require closing and reopening
-                    # PowerShell, but it is now reported clearly and only happens in that specific
-                    # pre-existing-conflict case, rather than on every routine first-time install.
+                    # If a conflicting module version was already loaded in this session, the CLR cannot
+                    # swap the assembly without a new process - opening a new PowerShell window resolves it.
                     ' If a different version of this module was already loaded earlier in this PowerShell session (or by your PowerShell profile), open a new PowerShell window and re-run the script; this can be a .NET assembly-loading limitation rather than a problem with the installation itself.'
                 }
 
@@ -1367,14 +1287,8 @@ function Invoke-WithRetry {
             $isRetryable = $message -match '(?i)(429|throttl|timeout|temporar|503|504|gateway|too many requests|service unavailable|try again)'
 
             if (-not $isRetryable -or $attempt -ge $MaximumAttempts) {
-                # Surface full diagnostic detail (exception type name plus the full InnerException chain) on
-                # the way out. Generic top-level messages like "Argument types do not match" are otherwise
-                # nearly impossible to root-cause after the fact, since the SDK's real underlying error is
-                # frequently wrapped several InnerException layers deep.
-                # Level Warning (not Debug) is used deliberately here so this diagnostic detail is visible in
-                # the console by default, without requiring -Verbose. This is precisely the information
-                # needed to root-cause an opaque SDK error like "Argument types do not match" instead of
-                # guessing at fixes.
+                # Log the full exception chain at Warning so it is visible without -Verbose.
+                # SDK errors are often wrapped several InnerException levels deep.
                 $exceptionTypeName = $_.Exception.GetType().FullName
                 Write-Log -Message "$OperationName failed with a non-retryable error. Exception type: $exceptionTypeName. Message: $message" -Level Warning
 
@@ -1749,18 +1663,6 @@ function Get-UserDeviceObjects {
         [string]$RelationshipMode
     )
 
-    # DIAGNOSTIC INSTRUMENTATION:
-    # This function's entire body is wrapped in try/catch below. The error PowerShell has been reporting
-    # ("Argument types do not match", attributed to [Get-UserDeviceObjects] rather than to
-    # Get-MgUserRegisteredDevice/Get-MgUserOwnedDevice directly) indicates the terminating error is most
-    # likely NOT originating inside those two Graph cmdlet calls, since PowerShell normally attributes a
-    # terminating error to the innermost command that threw it. Two prior hypotheses (a [pscustomobject]
-    # parameter-type conflict, then a -Property argument conflict) were tested and neither stopped the
-    # recurrence at this same call site, which means guessing a third specific line is not responsible
-    # without hard evidence. This wrapper captures the full exception type, PowerShell's ScriptStackTrace
-    # (which pinpoints the exact failing line/command inside this function), the exact CategoryInfo, and
-    # every layer of InnerException, then surfaces all of it at Warning level (visible without -Verbose)
-    # before rethrowing, so the *next* run tells us definitively where this is coming from.
     try {
         $results = New-Object System.Collections.Generic.List[object]
 
@@ -1784,37 +1686,15 @@ function Get-UserDeviceObjects {
             }
         }
 
-        # CONFIRMED ROOT CAUSE (from live ScriptStackTrace + .NET StackTrace evidence):
-        # "return @($results)" was throwing System.ArgumentException: Argument types do not match, with a
-        # .NET stack showing System.Linq.Expressions.Expression.Condition inside
-        # PSEnumerableBinder.MaybeDebase / PSToObjectArrayBinder.Bind. This is a documented Windows
-        # PowerShell 5.1 dynamic-binder defect: wrapping a strongly typed System.Collections.Generic.List<T>
-        # with the @() array-subexpression operator can fail this way (most reliably reproduced when the
-        # list is empty or has exactly one element, which is why it hit on the very first user processed).
-        # .ToArray() returns a concrete object[] directly from the List<T> without going through that
-        # dynamic binder path at all, sidestepping the defect entirely rather than working around a symptom.
+        # .ToArray() avoids a Windows PowerShell 5.1 dynamic-binder defect where wrapping a List<T>
+        # in @() can throw "Argument types do not match".
         return $results.ToArray()
     }
     catch {
-        Write-Log -Message "=== DIAGNOSTIC: Get-UserDeviceObjects failed for user '$($User.Id)' / '$($User.UserPrincipalName)' ===" -Level Warning
-        Write-Log -Message "Exception type: $($_.Exception.GetType().FullName)" -Level Warning
-        Write-Log -Message "Exception message: $($_.Exception.Message)" -Level Warning
-        Write-Log -Message "CategoryInfo: $($_.CategoryInfo.ToString())" -Level Warning
-        Write-Log -Message "FullyQualifiedErrorId: $($_.FullyQualifiedErrorId)" -Level Warning
-        Write-Log -Message "ScriptStackTrace (pinpoints the exact failing line inside this function):" -Level Warning
-        Write-Log -Message $_.ScriptStackTrace -Level Warning
+        Write-Log -Message "Failed to retrieve devices for user '$($User.Id)' / '$($User.UserPrincipalName)': $(Get-FullErrorDetailText -ErrorRecord $_)" -Level Warning
         if (-not [string]::IsNullOrWhiteSpace($_.Exception.StackTrace)) {
             Write-Log -Message ".NET StackTrace: $($_.Exception.StackTrace)" -Level Warning
         }
-
-        $innerException = $_.Exception.InnerException
-        $innerDepth = 0
-        while ($null -ne $innerException -and $innerDepth -lt 5) {
-            Write-Log -Message "Inner exception [$innerDepth]: $($innerException.GetType().FullName): $($innerException.Message)" -Level Warning
-            $innerException = $innerException.InnerException
-            $innerDepth++
-        }
-        Write-Log -Message '=== END DIAGNOSTIC ===' -Level Warning
 
         throw
     }
@@ -2066,9 +1946,7 @@ try {
 
     Import-RequiredGraphModules -InstallIfMissing:$InstallMissingModules
 
-    # Print the exact loaded module versions. This is directly relevant to the "Argument types do not
-    # match" investigation, since SDK behavior around registeredDevices/ownedDevices navigation properties
-    # is known to differ across Microsoft.Graph module releases.
+    # Log loaded module versions to aid troubleshooting of Graph SDK-specific behavior differences.
     foreach ($moduleName in @('Microsoft.Graph.Authentication', 'Microsoft.Graph.Users', 'Microsoft.Graph.Groups', 'Microsoft.Graph.Identity.DirectoryManagement')) {
         $loadedModule = Get-Module -Name $moduleName | Select-Object -First 1
         if ($null -ne $loadedModule) {
@@ -2264,13 +2142,7 @@ finally {
         Write-Log -Message 'Skipping Microsoft Graph disconnect because -SkipGraphConnect was specified; the connection was not established by this script.' -Level Info
     }
     elseif ($null -eq (Get-Module -Name Microsoft.Graph.Authentication)) {
-        # Get-MgContext/Disconnect-MgGraph do not exist as commands until Microsoft.Graph.Authentication has
-        # actually been imported into this session. If the script failed before that point (for example, the
-        # module was not installed and -InstallMissingModules was not specified), calling them here would
-        # throw its own "term ... is not recognized" error - which is misleading noise on top of the real,
-        # already-reported cause, and is exactly what happened when this module was missing. There is
-        # nothing to disconnect in this case, so it is silently skipped rather than logged, since it is
-        # normal and expected whenever the script fails before authentication was ever attempted.
+        # Microsoft.Graph.Authentication was never loaded; there is no Graph session to disconnect.
     }
     else {
         try {
