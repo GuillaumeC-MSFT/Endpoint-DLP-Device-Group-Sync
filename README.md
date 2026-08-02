@@ -48,6 +48,8 @@ This PowerShell script reads the user members of a source Microsoft Entra ID sec
 
 ## Usage
 
+Run `.\Sync-UserGroupDevicesToDeviceGroup.ps1` as is with no switches to be prompted for the required source group and target group. By default, the script syncs registered devices from transitive group members, removes stale devices, excludes disabled devices, authenticates with Device Code and falls back to Interactive browser sign-in if needed, installs missing modules, retries Graph errors up to three times with a three-second base delay, and writes a timestamped CSV report to the current directory.
+
 ### Basic sync with -WhatIf (dry run)
 
 ```powershell
