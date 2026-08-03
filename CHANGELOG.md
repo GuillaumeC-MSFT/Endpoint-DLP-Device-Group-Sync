@@ -2,6 +2,10 @@
 
 All notable changes to this script are documented here.
 
+## 3.16.3
+
+- Fixed companion report path construction when `-ReportPath` is supplied as a bare filename with no parent directory.
+
 ## 3.16.2
 
 - Added automatic timestamped CSV reports in the current working directory, with `-ReportPath` available to override the destination.

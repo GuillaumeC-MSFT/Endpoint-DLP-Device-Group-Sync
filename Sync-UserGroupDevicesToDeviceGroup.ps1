@@ -71,7 +71,7 @@ Key behaviors:
     -InstallMissingModules:$false
 
 .NOTES
-Script version: 3.16.2
+Script version: 3.16.3
 
 Required Microsoft Graph delegated permissions:
 - Group.Read.All
@@ -179,7 +179,7 @@ else {
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:ScriptVersion = '3.16.2'
+$script:ScriptVersion = '3.16.3'
 $script:ScriptName = 'Sync-UserGroupDevicesToDeviceGroup.ps1'
 
 function Write-Log {
@@ -2116,6 +2116,9 @@ try {
 
     if (-not [string]::IsNullOrWhiteSpace($ReportPath)) {
         $reportDirectory = Split-Path -Path $ReportPath -Parent
+        if ([string]::IsNullOrWhiteSpace($reportDirectory)) {
+            $reportDirectory = (Get-Location).Path
+        }
         if (-not [string]::IsNullOrWhiteSpace($reportDirectory) -and -not (Test-Path -Path $reportDirectory)) {
             New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
         }
@@ -2127,7 +2130,7 @@ try {
             $reportBaseName = [System.IO.Path]::GetFileNameWithoutExtension($ReportPath)
             $reportExtension = [System.IO.Path]::GetExtension($ReportPath)
             if ([string]::IsNullOrWhiteSpace($reportExtension)) { $reportExtension = '.csv' }
-            $usersWithoutDevicesPath = Join-Path -Path (Split-Path -Path $ReportPath -Parent) -ChildPath ("$reportBaseName-UsersWithoutDevices$reportExtension")
+            $usersWithoutDevicesPath = Join-Path -Path $reportDirectory -ChildPath ("$reportBaseName-UsersWithoutDevices$reportExtension")
             $usersWithoutDevices | Sort-Object UserPrincipalName, DisplayName | Export-Csv -Path $usersWithoutDevicesPath -NoTypeInformation -Encoding UTF8
             Write-Log -Message "Users without devices report written to '$usersWithoutDevicesPath'." -Level Success
         }
